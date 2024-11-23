@@ -14,7 +14,7 @@ To use the Claude.ai File Uploader, you'll need to have Rust installed on your s
 
 Once you have Rust installed, you can clone the repository and build the application:
 ```bash
-git clone https://github.com/OnePromptMagic/claude-uploader.git
+git clone https://github.com/martinpam/claude-uploader.git
 cd claude-uploader
 cargo build --release
 ```
@@ -28,7 +28,7 @@ This will create an executable file in the `target/release` directory. You can t
 Alternatively, you can run the application directly with Cargo:
 
 ```bash
-git clone https://github.com/OnePromptMagic/claude-uploader.git
+git clone https://github.com/martinpam/claude-uploader.git
 cd claude-uploader
 cargo run
 ```
