@@ -1,8 +1,10 @@
 # Claude.ai File Uploader
 
-## Features
-- Supports a wide range of file types, including code files, documentation, and media files
-- Automatically skips files listed in .gitignore
+The Claude.ai File Uploader is a desktop application that makes it easy to upload files to your Claude.ai projects. Since the Claude.ai web interface doesn't allow uploading entire folders, this tool solves that problem by letting you select a folder and uploading all the supported files in it.
+
+## Key Features:
+- Uploads files to your Claude.ai projects efficiently
+- Automatically skips files listed in your .gitignore
 - Provides detailed upload status and error reporting
 - Handles large file uploads without issues
 - Clean and intuitive user interface
@@ -11,7 +13,6 @@
 To use the Claude.ai File Uploader, you'll need to have Rust installed on your system. If you don't have Rust installed, you can download it from the official Rust website: [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
 
 Once you have Rust installed, you can clone the repository and build the application:
-
 ```bash
 git clone https://github.com/OnePromptMagic/claude-uploader.git
 cd claude-uploader
@@ -23,6 +24,16 @@ This will create an executable file in the `target/release` directory. You can t
 ```bash
 ./target/release/claude_uploader
 ```
+
+Alternatively, you can run the application directly with Cargo:
+
+```bash
+git clone https://github.com/OnePromptMagic/claude-uploader.git
+cd claude-uploader
+cargo run
+```
+The `cargo run` command will build and run the application without creating a separate executable file, which may result in a smaller file size.
+
 
 ## Usage
 1. Copy the cURL request from the Claude.ai website:
