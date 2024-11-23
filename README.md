@@ -1,4 +1,4 @@
-der # Claude.ai File Uploader
+# Claude.ai File Uploader
 
 ## Features
 - Supports a wide range of file types, including code files, documentation, and media files
@@ -39,7 +39,7 @@ This will create an executable file in the `target/release` directory. You can t
 The application will display the upload progress, as well as any errors or skipped files. You can view the detailed file status by clicking the "Show Details" button.
 
 ## Disclaimer
-This application is provided as-is, and the developers are not responsible for any issues or problems that may arise from its use. Please review the source code and ensure that you understand what the application is doing before using it.
+This application is provided as-is, I am not responsible for any issues or problems that may arise from its use. Please review the source code and ensure that you understand what the application is doing before using it.
 
 ## License
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
