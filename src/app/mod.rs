@@ -242,18 +242,24 @@ impl ClaudeUploader {
         }
     }
 
-    pub fn update_state(&mut self) {
+    pub fn update_state(&mut self, ctx: &egui::Context) {
+        ctx.request_repaint();
+        // Add ctx parameter
         // Check for uploaded files updates
         if let Some(receiver) = &self.state.uploaded_files_receiver {
             if let Ok(files) = receiver.try_recv() {
                 self.state.uploaded_files = files;
                 self.state.uploaded_files_receiver = None;
+                ctx.request_repaint();
             }
         }
 
         // Check for status updates
         if let Some(receiver) = &self.state.status_receiver {
+            let mut had_updates = false;
+
             while let Ok(status) = receiver.try_recv() {
+                had_updates = true;
                 let mut should_complete = false;
                 let mut completion_state = None;
 
@@ -265,14 +271,16 @@ impl ClaudeUploader {
                         skipped,
                         total,
                     } => {
-                        *current += 1;
                         match &status.status {
+                            UploadStatus::Processing => {
+                                *current += 1;
+                            }
                             UploadStatus::Success => *successful += 1,
                             UploadStatus::Error(_) => *failed += 1,
                             UploadStatus::Skipped(_) => *skipped += 1,
                         }
 
-                        if *current >= *total {
+                        if (*successful + *failed + *skipped) >= *total {
                             should_complete = true;
                             completion_state = Some(ActionProgress::Completed {
                                 total: *total,
@@ -288,14 +296,16 @@ impl ClaudeUploader {
                         failed,
                         total,
                     } => {
-                        *current += 1;
                         match &status.status {
+                            UploadStatus::Processing => {
+                                *current += 1;
+                            }
                             UploadStatus::Success => *successful += 1,
                             UploadStatus::Error(_) => *failed += 1,
                             _ => {}
                         }
 
-                        if *current >= *total {
+                        if (*successful + *failed) >= *total {
                             should_complete = true;
                             completion_state = Some(ActionProgress::Completed {
                                 total: *total,
@@ -318,14 +328,18 @@ impl ClaudeUploader {
 
                         if has_failures {
                             self.state.error_message = Some(
-                                      "Operation completed with failures. Check details for more information."
-                                          .to_string(),
-                                  );
+                                    "Operation completed with failures. Check details for more information."
+                                        .to_string(),
+                                );
                         }
                         self.state.is_uploading = false;
                         self.state.is_deleting = false;
                     }
                 }
+            }
+
+            if had_updates {
+                ctx.request_repaint();
             }
         }
     }
@@ -333,7 +347,7 @@ impl ClaudeUploader {
 
 impl App for ClaudeUploader {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.update_state();
+        self.update_state(ctx);
         self.render(ctx);
     }
 }

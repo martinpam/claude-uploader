@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub enum UploadStatus {
+    Processing,
     Success,
     Error(String),
     Skipped(String),

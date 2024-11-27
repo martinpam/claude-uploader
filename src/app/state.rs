@@ -1,3 +1,5 @@
+// in app/state.rs
+
 use crate::upload::{FileStatus, UploadedFile};
 use std::sync::mpsc::Receiver;
 
@@ -46,6 +48,58 @@ pub struct UploadState {
 }
 
 impl UploadState {
+    pub fn clear(&mut self) {
+        self.progress = ActionProgress::NotStarted;
+        self.current_file = None;
+        self.file_statuses.clear();
+        self.uploaded_files.clear();
+        self.error_message = None;
+        self.show_details = false;
+        self.is_uploading = false;
+        self.is_deleting = false;
+        self.status_receiver = None;
+        self.uploaded_files_receiver = None;
+    }
+
+    pub fn get_progress_percentage(&self) -> f32 {
+        match &self.progress {
+            ActionProgress::NotStarted => 0.0,
+            ActionProgress::Uploading {
+                total,
+                current,
+                successful,
+                failed,
+                skipped,
+            } => {
+                if *total == 0 {
+                    0.0
+                } else {
+                    // Include both completed and currently processing files
+                    (*current) as f32 / *total as f32
+                }
+            }
+            ActionProgress::Deleting {
+                total,
+                current,
+                successful,
+                failed,
+            } => {
+                if *total == 0 {
+                    0.0
+                } else {
+                    (*current) as f32 / *total as f32
+                }
+            }
+            ActionProgress::Completed { total, .. } => {
+                if *total == 0 {
+                    0.0
+                } else {
+                    1.0
+                }
+            }
+        }
+    }
+
     pub fn get_status_text(&self) -> String {
         match &self.progress {
             ActionProgress::NotStarted => String::new(),
@@ -77,40 +131,6 @@ impl UploadState {
                 "Final Status: {}/{} files | ✅ Success: {} | ⏩ Skipped: {} | ❌ Failed: {}",
                 total, total, successful, skipped, failed
             ),
-        }
-    }
-
-    pub fn clear(&mut self) {
-        self.progress = ActionProgress::NotStarted;
-        self.current_file = None;
-        self.file_statuses.clear();
-        self.uploaded_files.clear();
-        self.error_message = None;
-        self.show_details = false;
-        self.is_uploading = false;
-        self.is_deleting = false;
-        self.status_receiver = None;
-        self.uploaded_files_receiver = None;
-    }
-
-    pub fn get_progress_percentage(&self) -> f32 {
-        match &self.progress {
-            ActionProgress::NotStarted => 0.0,
-            ActionProgress::Uploading { total, current, .. }
-            | ActionProgress::Deleting { total, current, .. } => {
-                if *total == 0 {
-                    0.0
-                } else {
-                    *current as f32 / *total as f32
-                }
-            }
-            ActionProgress::Completed { total, .. } => {
-                if *total == 0 {
-                    0.0
-                } else {
-                    1.0
-                }
-            }
         }
     }
 }

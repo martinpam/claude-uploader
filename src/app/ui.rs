@@ -1,5 +1,6 @@
 use super::ActionProgress;
 use super::ClaudeUploader;
+use crate::upload::UploadStatus;
 use eframe::egui::{self, Align, Color32, RichText};
 use rfd::FileDialog;
 
@@ -182,7 +183,16 @@ impl ClaudeUploader {
                             ui.add_space(8.0);
                             for status in &self.state.file_statuses {
                                 match &status.status {
-                                    crate::upload::UploadStatus::Success => {
+                                    UploadStatus::Processing => {
+                                        ui.horizontal(|ui| {
+                                            ui.label("⏳");
+                                            ui.colored_label(
+                                                Color32::from_rgb(150, 150, 150),
+                                                &format!("{} - Processing...", status.name),
+                                            );
+                                        });
+                                    }
+                                    UploadStatus::Success => {
                                         ui.horizontal(|ui| {
                                             ui.label("✅");
                                             ui.colored_label(
@@ -191,7 +201,7 @@ impl ClaudeUploader {
                                             );
                                         });
                                     }
-                                    crate::upload::UploadStatus::Error(err) => {
+                                    UploadStatus::Error(err) => {
                                         ui.horizontal(|ui| {
                                             ui.label("❌");
                                             ui.colored_label(
@@ -200,7 +210,7 @@ impl ClaudeUploader {
                                             );
                                         });
                                     }
-                                    crate::upload::UploadStatus::Skipped(reason) => {
+                                    UploadStatus::Skipped(reason) => {
                                         ui.horizontal(|ui| {
                                             ui.label("⏩");
                                             ui.colored_label(
@@ -217,7 +227,6 @@ impl ClaudeUploader {
                 });
         }
     }
-
     fn render_footer(&self, ui: &mut egui::Ui) {
         let footer_width = 200.0;
         let indent = (ui.available_width() - footer_width) / 2.0;

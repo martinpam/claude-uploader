@@ -50,16 +50,34 @@ impl FileProcessor {
 
     pub async fn process_files(&self, status_sender: &Sender<FileStatus>) -> Vec<UploadedFile> {
         let mut uploaded_files = Vec::new();
+        let mut files_to_process = Vec::new();
 
         for entry in Walk::new(&self.folder_path) {
             if let Ok(entry) = entry {
                 let path = entry.path();
-                if path.is_file() {
-                    if let Ok(file) = self.upload_file(path, status_sender).await {
-                        if let Some(uploaded_file) = file {
-                            uploaded_files.push(uploaded_file);
-                        }
-                    }
+                if path.is_file() && Self::is_supported_file(path) {
+                    files_to_process.push(path.to_path_buf());
+                }
+            }
+        }
+
+        for file_path in files_to_process {
+            let file_name = file_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+
+            status_sender
+                .send(FileStatus {
+                    name: file_name.clone(),
+                    status: UploadStatus::Processing,
+                })
+                .unwrap_or_default();
+
+            if let Ok(file) = self.upload_file(&file_path, status_sender).await {
+                if let Some(uploaded_file) = file {
+                    uploaded_files.push(uploaded_file);
                 }
             }
         }
@@ -119,16 +137,9 @@ impl FileProcessor {
             .await
             .map_err(|e| format!("Failed to send request: {}", e))?;
 
-        let status = response.status();
-
-        match status.as_u16() {
+        match response.status().as_u16() {
             200 | 201 => match response.json::<UploadResponse>().await {
                 Ok(upload_response) => {
-                    println!(
-                        "Successfully uploaded file '{}' with ID: {}",
-                        file_name, upload_response.uuid
-                    );
-
                     let uploaded_file = UploadedFile {
                         name: file_name.clone(),
                         uuid: upload_response.uuid,
@@ -143,10 +154,7 @@ impl FileProcessor {
                     Ok(Some(uploaded_file))
                 }
                 Err(e) => {
-                    let error_msg =
-                        format!("Failed to parse upload response for '{}': {}", file_name, e);
-                    println!("Error: {}", error_msg);
-
+                    let error_msg = format!("Failed to parse upload response: {}", e);
                     let status = FileStatus {
                         name: file_name,
                         status: UploadStatus::Error(error_msg.clone()),
@@ -156,12 +164,7 @@ impl FileProcessor {
                 }
             },
             status_code => {
-                let error_msg = format!(
-                    "Upload failed with status: {} for file '{}'",
-                    status_code, file_name
-                );
-                println!("Error: {}", error_msg);
-
+                let error_msg = format!("Upload failed with status: {}", status_code);
                 let status = FileStatus {
                     name: file_name,
                     status: UploadStatus::Error(error_msg),
@@ -173,15 +176,38 @@ impl FileProcessor {
     }
 
     fn is_supported_file(path: &Path) -> bool {
-        let ignored_files = [
-            "package-lock.json",
-            ".DS_Store",
+        let ignored_paths = [
             "node_modules",
-            ".env",
             ".nuxt",
+            ".output",
+            ".data",
             ".nitro",
             ".cache",
             "dist",
+            "logs",
+            ".wallet-db",
+            ".fleet",
+            ".idea",
+        ];
+
+        // Check if file is in an ignored directory
+        if let Ok(canonical_path) = path.canonicalize() {
+            let path_str = canonical_path.to_string_lossy();
+            if ignored_paths
+                .iter()
+                .any(|ignored| path_str.contains(ignored))
+            {
+                return false;
+            }
+        }
+
+        let ignored_files = [
+            "package-lock.json",
+            ".DS_Store",
+            ".env",
+            ".env.local",
+            ".env.development",
+            ".env.production",
         ];
 
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
@@ -212,7 +238,6 @@ impl FileProcessor {
             "toml",
             "xml",
             "d.ts",
-            "env",
             "gitignore",
             "prettierrc",
             "eslintrc",
@@ -221,7 +246,6 @@ impl FileProcessor {
             "browserslistrc",
             "editorconfig",
             "npmrc",
-            "log",
         ];
 
         if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
