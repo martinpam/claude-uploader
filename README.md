@@ -9,6 +9,29 @@ The Claude.ai File Uploader is a desktop application that makes it easy to uploa
 - Handles large file uploads without issues
 - Clean and intuitive user interface
 
+## Section Selection
+The uploader supports selective file upload using `.claudekeep` configurations:
+
+```plaintext
+frontend:
+components/**
+pages/**
+*.vue
+
+backend:
+server/**
+api/**
+types/api.ts
+```
+
+- Create a `.claudekeep` file in your project root
+- Define sections with file patterns
+- Select sections to upload in the UI
+- Preview shows file count for current selection
+- Supports `**` for recursive matching and `*` wildcards
+
+Files are only uploaded if they match patterns in selected sections.
+
 ## Installation
 To use the Claude.ai File Uploader, you'll need to have Rust installed on your system. If you don't have Rust installed, you can download it from the official Rust website: [https://www.rust-lang.org/tools/install](https://www.rust-lang.org/tools/install)
 

@@ -1,20 +1,24 @@
 use super::ActionProgress;
 use super::ClaudeUploader;
+use crate::upload::FileProcessor;
 use crate::upload::UploadStatus;
+use crate::utils::claude_keep::ClaudeKeepConfig;
 use eframe::egui::{self, Align, Color32, RichText};
+use reqwest::header::HeaderMap;
 use rfd::FileDialog;
+use std::path::Path;
 
 impl ClaudeUploader {
     pub fn render(&mut self, ctx: &egui::Context) {
         egui::CentralPanel::default().show(ctx, |ui| {
-               let total_height = ui.available_height();
-               let footer_height = 40.0;
-               let footer_margin = 15.0;
-               let content_height = total_height - footer_height - footer_margin;
+            let total_height = ui.available_height();
+            let footer_height = 40.0;
+            let footer_margin = 15.0;
+            let content_height = total_height - footer_height - footer_margin;
 
-               egui::ScrollArea::vertical()
-                   .max_height(content_height)
-                   .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .max_height(content_height)
+                .show(ui, |ui| {
                     ui.add_space(20.0);
                     ui.vertical_centered(|ui| {
                         ui.heading("Claude.ai File Uploader");
@@ -70,6 +74,11 @@ impl ClaudeUploader {
                             if ui.button("📁 Select Folder").clicked() {
                                 if let Some(path) = FileDialog::new().pick_folder() {
                                     self.folder_path = Some(path.display().to_string());
+
+                                    // Load .claudekeep configuration
+                                    let path = Path::new(&path);
+                                    self.state.keep_config = ClaudeKeepConfig::from_file(path);
+                                    self.state.selected_sections.clear();
                                 }
                             }
                             if let Some(folder) = &self.folder_path {
@@ -77,6 +86,40 @@ impl ClaudeUploader {
                             }
                         });
                     });
+
+                    // Section selector with file preview
+                    if let Some(config) = &self.state.keep_config {
+                        ui.add_space(10.0);
+                        ui.group(|ui| {
+                            ui.label(RichText::new("Select sections to upload:").strong());
+                            ui.add_space(5.0);
+
+                            let processor = FileProcessor::new(
+                                self.folder_path.clone().unwrap_or_default(),
+                                String::new(),
+                                String::new(),
+                                HeaderMap::new(),
+                                Some(config.clone()),
+                                self.state.selected_sections.clone(),
+                            );
+                            let file_count = processor.count_supported_files();
+
+                            for section in &config.sections {
+                                let mut selected = self.state.selected_sections.contains(section);
+                                if ui.checkbox(&mut selected, section).changed() {
+                                    if selected {
+                                        self.state.selected_sections.push(section.clone());
+                                    } else {
+                                        self.state.selected_sections.retain(|s| s != section);
+                                    }
+                                }
+                            }
+
+                            ui.add_space(8.0);
+                            ui.label(RichText::new(format!("Files to be uploaded: {}", file_count))
+                                .color(Color32::from_rgb(100, 150, 255)));
+                        });
+                    }
 
                     ui.add_space(20.0);
 
@@ -131,34 +174,34 @@ impl ClaudeUploader {
                                             "📤 Uploading"
                                         }
                                     }
-                                                                    };
-                                                                    ui.label(format!("{}: {}", status_text, current_file));
-                                                                }
+                                };
+                                ui.label(format!("{}: {}", status_text, current_file));
+                            }
 
-                                                                let progress = self.state.get_progress_percentage();
-                                                                let progress_bar = egui::ProgressBar::new(progress)
-                                                                    .show_percentage()
-                                                                    .animate(false)
-                                                                    .fill(Color32::from_rgb(161, 89, 225));
-                                                                ui.add(progress_bar);
+                            let progress = self.state.get_progress_percentage();
+                            let progress_bar = egui::ProgressBar::new(progress)
+                                .show_percentage()
+                                .animate(false)
+                                .fill(Color32::from_rgb(161, 89, 225));
+                            ui.add(progress_bar);
 
-                                                                ui.label(self.state.get_status_text());
-                                                            });
-                                                        }
+                            ui.label(self.state.get_status_text());
+                        });
+                    }
 
-                                                        if !self.state.file_statuses.is_empty() {
-                                                            ui.add_space(10.0);
-                                                            self.render_details(ui);
-                                                        }
+                    if !self.state.file_statuses.is_empty() {
+                        ui.add_space(10.0);
+                        self.render_details(ui);
+                    }
 
-                                                        ui.add_space(20.0);
-                                                    });
+                    ui.add_space(20.0);
+                });
 
-                                                ui.with_layout(egui::Layout::bottom_up(Align::Center), |ui| {
-                                                    ui.add_space(footer_margin);
-                                                    self.render_footer(ui);
-                                                });
-                                            });
+            ui.with_layout(egui::Layout::bottom_up(Align::Center), |ui| {
+                ui.add_space(footer_margin);
+                self.render_footer(ui);
+            });
+        });
     }
 
     fn render_details(&mut self, ui: &mut egui::Ui) {
@@ -227,6 +270,7 @@ impl ClaudeUploader {
                 });
         }
     }
+
     fn render_footer(&self, ui: &mut egui::Ui) {
         let footer_width = 200.0;
         let indent = (ui.available_width() - footer_width) / 2.0;

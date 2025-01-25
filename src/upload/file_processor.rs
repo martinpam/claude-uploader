@@ -1,4 +1,5 @@
 use crate::upload::types::{FileStatus, UploadStatus, UploadedFile};
+use crate::utils::claude_keep::ClaudeKeepConfig;
 use ignore::Walk;
 use reqwest::header::HeaderMap;
 use serde::Deserialize;
@@ -19,6 +20,8 @@ pub struct FileProcessor {
     organization_id: String,
     project_id: String,
     headers: HeaderMap,
+    keep_config: Option<ClaudeKeepConfig>,
+    selected_sections: Vec<String>,
 }
 
 impl FileProcessor {
@@ -27,12 +30,16 @@ impl FileProcessor {
         organization_id: String,
         project_id: String,
         headers: HeaderMap,
+        keep_config: Option<ClaudeKeepConfig>,
+        selected_sections: Vec<String>,
     ) -> Self {
         Self {
             folder_path,
             organization_id,
             project_id,
             headers,
+            keep_config,
+            selected_sections,
         }
     }
 
@@ -40,7 +47,7 @@ impl FileProcessor {
         let mut count = 0;
         for entry in Walk::new(&self.folder_path) {
             if let Ok(entry) = entry {
-                if entry.path().is_file() && Self::is_supported_file(entry.path()) {
+                if entry.path().is_file() && self.is_supported_file(entry.path()) {
                     count += 1;
                 }
             }
@@ -55,7 +62,7 @@ impl FileProcessor {
         for entry in Walk::new(&self.folder_path) {
             if let Ok(entry) = entry {
                 let path = entry.path();
-                if path.is_file() && Self::is_supported_file(path) {
+                if path.is_file() && self.is_supported_file(path) {
                     files_to_process.push(path.to_path_buf());
                 }
             }
@@ -97,10 +104,12 @@ impl FileProcessor {
             .ok_or("Invalid filename encoding")?
             .to_string();
 
-        if !Self::is_supported_file(file_path) {
+        if !self.is_supported_file(file_path) {
             let status = FileStatus {
                 name: file_name,
-                status: UploadStatus::Skipped("Unsupported file type".to_string()),
+                status: UploadStatus::Skipped(
+                    "Not included in selected sections or unsupported type".to_string(),
+                ),
             };
             status_sender.send(status).unwrap_or_default();
             return Ok(None);
@@ -175,7 +184,7 @@ impl FileProcessor {
         }
     }
 
-    fn is_supported_file(path: &Path) -> bool {
+    fn is_supported_file(&self, path: &Path) -> bool {
         let ignored_paths = [
             "node_modules",
             ".nuxt",
@@ -212,6 +221,13 @@ impl FileProcessor {
 
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str()) {
             if ignored_files.contains(&file_name) {
+                return false;
+            }
+        }
+
+        // Check against .claudekeep configuration
+        if let Some(config) = &self.keep_config {
+            if !config.should_include_file(path, &self.selected_sections) {
                 return false;
             }
         }

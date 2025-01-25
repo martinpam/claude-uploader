@@ -2,10 +2,12 @@ mod state;
 mod ui;
 
 use crate::upload::{FileProcessor, FileStatus, UploadStatus, UploadedFile};
+use crate::utils::claude_keep::ClaudeKeepConfig;
 use crate::utils::curl_parser::CurlParser;
 use eframe::{egui, App};
 use reqwest::header::HeaderMap;
 pub use state::{ActionProgress, UploadState};
+use std::path::Path;
 use std::sync::mpsc as std_mpsc;
 
 #[derive(Default)]
@@ -34,6 +36,7 @@ impl ClaudeUploader {
         self.state.clear();
         self.curl_parser = CurlParser::new();
     }
+
     pub fn delete_and_reupload(&mut self) {
         if self.state.uploaded_files.is_empty() {
             println!("No files to delete. Uploaded files list is empty.");
@@ -42,14 +45,6 @@ impl ClaudeUploader {
         }
 
         println!("Starting delete and reupload process...");
-        println!(
-            "Files to delete: {:?}",
-            self.state
-                .uploaded_files
-                .iter()
-                .map(|f| (&f.name, &f.uuid))
-                .collect::<Vec<_>>()
-        );
 
         self.state.is_deleting = true;
         self.state.error_message = None;
@@ -57,6 +52,8 @@ impl ClaudeUploader {
 
         let files_to_delete = self.state.uploaded_files.clone();
         let folder_path = self.folder_path.clone();
+        let keep_config = self.state.keep_config.clone();
+        let selected_sections = self.state.selected_sections.clone();
 
         if let Err(e) = self.curl_parser.parse(&self.curl_text) {
             let error_msg = format!("Error parsing curl command: {}", e);
@@ -68,6 +65,7 @@ impl ClaudeUploader {
 
         let (sender, receiver) = std_mpsc::channel();
         self.state.status_receiver = Some(receiver);
+        let sender = sender.clone();
 
         self.state.progress = ActionProgress::Deleting {
             total: files_to_delete.len(),
@@ -79,39 +77,29 @@ impl ClaudeUploader {
         let org_id = self.curl_parser.organization_id.clone().unwrap();
         let proj_id = self.curl_parser.project_id.clone().unwrap();
         let headers = self.curl_parser.headers.clone().unwrap();
-        let state = &mut self.state;
 
         println!("Starting deletion of {} files", files_to_delete.len());
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             rt.block_on(async {
-                // First delete all files
                 for file in files_to_delete {
                     let status = Self::delete_file(&org_id, &proj_id, &file, &headers).await;
-                    sender.send(status).unwrap_or_default();
+                    let _ = sender.send(status);
                 }
 
-                println!("Deletion process completed, starting reupload...");
-
-                // Then start the upload process if we have a folder path
                 if let Some(folder_path) = folder_path {
                     let processor = FileProcessor::new(
                         folder_path.clone(),
                         org_id.clone(),
                         proj_id.clone(),
                         headers.clone(),
+                        keep_config,
+                        selected_sections,
                     );
 
-                    println!("Processing files in folder: {}", folder_path);
-                    let (upload_sender, upload_receiver) = std_mpsc::channel();
-                    let uploaded_files = processor.process_files(&upload_sender).await;
+                    let uploaded_files = processor.process_files(&sender).await;
                     println!("Reupload completed. Uploaded files: {:?}", uploaded_files);
-
-                    // Forward the upload statuses to the main sender
-                    while let Ok(status) = upload_receiver.try_recv() {
-                        sender.send(status).unwrap_or_default();
-                    }
                 }
             });
         });
@@ -191,12 +179,16 @@ impl ClaudeUploader {
 
         if let Some(folder_path) = &self.folder_path {
             println!("Processing folder: {}", folder_path);
+            let keep_config = self.state.keep_config.clone();
+            let selected_sections = self.state.selected_sections.clone();
 
             let processor = FileProcessor::new(
                 folder_path.clone(),
                 self.curl_parser.organization_id.clone().unwrap(),
                 self.curl_parser.project_id.clone().unwrap(),
                 self.curl_parser.headers.clone().unwrap(),
+                keep_config,
+                selected_sections,
             );
 
             let (status_sender, status_receiver) = std_mpsc::channel();
@@ -215,7 +207,7 @@ impl ClaudeUploader {
                 skipped: 0,
             };
 
-            let processor = processor;
+            let status_sender = status_sender.clone();
 
             std::thread::spawn(move || {
                 let rt = tokio::runtime::Runtime::new().unwrap();
@@ -226,9 +218,7 @@ impl ClaudeUploader {
                         uploaded_files
                     );
 
-                    // Send the uploaded files back to the main thread
                     let _ = files_sender.send(uploaded_files);
-
                     let _ = status_sender.send(FileStatus {
                         name: String::from(""),
                         status: UploadStatus::Success,
@@ -244,8 +234,7 @@ impl ClaudeUploader {
 
     pub fn update_state(&mut self, ctx: &egui::Context) {
         ctx.request_repaint();
-        // Add ctx parameter
-        // Check for uploaded files updates
+
         if let Some(receiver) = &self.state.uploaded_files_receiver {
             if let Ok(files) = receiver.try_recv() {
                 self.state.uploaded_files = files;
@@ -254,7 +243,6 @@ impl ClaudeUploader {
             }
         }
 
-        // Check for status updates
         if let Some(receiver) = &self.state.status_receiver {
             let mut had_updates = false;
 
@@ -328,9 +316,9 @@ impl ClaudeUploader {
 
                         if has_failures {
                             self.state.error_message = Some(
-                                    "Operation completed with failures. Check details for more information."
-                                        .to_string(),
-                                );
+                                                        "Operation completed with failures. Check details for more information."
+                                                            .to_string(),
+                                                    );
                         }
                         self.state.is_uploading = false;
                         self.state.is_deleting = false;
