@@ -41,12 +41,13 @@ impl CurlParser {
         // Extract headers
         let mut headers = HeaderMap::new();
         for line in curl_text.lines() {
-            if !line.starts_with("  -H '") {
+            if !line.starts_with("  -H '") && !line.starts_with(" -H '") {
                 continue;
             }
 
             let content = line
                 .trim_start_matches("  -H '")
+                .trim_start_matches(" -H '")
                 .trim_end_matches('\'')
                 .to_string();
 
@@ -65,6 +66,22 @@ impl CurlParser {
             }
         }
 
+        // Extract cookies separately if needed
+        if !headers.contains_key("cookie") {
+            for line in curl_text.lines() {
+                if line.contains("--cookie") || line.contains("-b ") {
+                    if let Some(cookie_start) = line.find('\'') {
+                        if let Some(cookie_end) = line[cookie_start + 1..].find('\'') {
+                            let cookie_value = &line[cookie_start + 1..cookie_start + 1 + cookie_end];
+                            if let Ok(header_value) = HeaderValue::from_str(cookie_value) {
+                                headers.insert(HeaderName::from_static("cookie"), header_value);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Add essential headers
         headers.insert(
             HeaderName::from_static("content-type"),
@@ -78,6 +95,14 @@ impl CurlParser {
             HeaderName::from_static("referer"),
             HeaderValue::from_str(&format!("https://claude.ai/project/{}", proj_id)).unwrap(),
         );
+        
+        // Make sure user-agent is set
+        if !headers.contains_key("user-agent") {
+            headers.insert(
+                HeaderName::from_static("user-agent"),
+                HeaderValue::from_static("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+            );
+        }
 
         self.organization_id = Some(org_id);
         self.project_id = Some(proj_id);

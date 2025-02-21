@@ -8,10 +8,16 @@ use std::fs;
 use std::path::Path;
 use std::sync::mpsc::Sender;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 struct UploadResponse {
     uuid: String,
     file_name: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ErrorResponse {
+    detail: Option<String>,
+    message: Option<String>,
 }
 
 #[derive(Clone)]
@@ -68,6 +74,35 @@ impl FileProcessor {
             }
         }
 
+        // First, verify we can connect by testing with a small file
+        if !files_to_process.is_empty() {
+            let test_path = &files_to_process[0];
+            let file_name = test_path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+                
+            status_sender
+                .send(FileStatus {
+                    name: format!("Testing connection with {}", file_name),
+                    status: UploadStatus::Processing,
+                })
+                .unwrap_or_default();
+                
+            let result = self.test_authentication(test_path).await;
+            if let Err(error) = result {
+                status_sender
+                    .send(FileStatus {
+                        name: "Authentication test".to_string(),
+                        status: UploadStatus::Error(error),
+                    })
+                    .unwrap_or_default();
+                    
+                return uploaded_files;
+            }
+        }
+
         for file_path in files_to_process {
             let file_name = file_path
                 .file_name()
@@ -90,6 +125,94 @@ impl FileProcessor {
         }
 
         uploaded_files
+    }
+    
+    async fn test_authentication(&self, file_path: &Path) -> Result<(), String> {
+        let file_name = file_path
+            .file_name()
+            .ok_or("Invalid filename")?
+            .to_str()
+            .ok_or("Invalid filename encoding")?
+            .to_string();
+            
+        // Read a small portion of the file to test
+        let content = match fs::read_to_string(file_path) {
+            Ok(content) => {
+                // Only use the first 100 chars for testing
+                content.chars().take(100).collect::<String>() + "..."
+            }
+            Err(e) => {
+                return Err(format!("Failed to read file: {}", e));
+            }
+        };
+
+        let payload = json!({
+            "file_name": file_name.clone(),
+            "content": content
+        });
+
+        let client = reqwest::Client::new();
+        let url = format!(
+            "https://claude.ai/api/organizations/{}/projects/{}/docs",
+            self.organization_id, self.project_id
+        );
+        
+        // Print headers for debugging
+        println!("Testing authentication with headers:");
+        for (key, value) in self.headers.iter() {
+            if key == "cookie" || key == "authorization" {
+                println!("  {}: [REDACTED]", key);
+            } else {
+                println!("  {}: {}", key, value.to_str().unwrap_or("[binary]"));
+            }
+        }
+        
+        println!("Request URL: {}", url);
+
+        let response = client
+            .post(&url)
+            .headers(self.headers.clone())
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to send request: {}", e))?;
+            
+        let status = response.status();
+        println!("Authentication test response status: {}", status);
+        
+        if status.is_success() {
+            // Clean up the test upload if successful
+            if let Ok(response_data) = response.json::<UploadResponse>().await {
+                // Try to delete the test file
+                self.delete_test_file(&response_data.uuid).await;
+            }
+            Ok(())
+        } else {
+            // Try to extract error message
+            let error_body = response.text().await.unwrap_or_default();
+            println!("Error response body: {}", error_body);
+            
+            let error_message = if error_body.contains("403") {
+                "Authentication failed (403 Forbidden). Your session may have expired. Please update your curl command from Claude.ai.".to_string()
+            } else if error_body.contains("401") {
+                "Authentication failed (401 Unauthorized). Your session tokens are invalid. Please update your curl command from Claude.ai.".to_string()
+            } else {
+                format!("Upload failed with status: {}. Response: {}", status, error_body)
+            };
+            
+            Err(error_message)
+        }
+    }
+    
+    async fn delete_test_file(&self, uuid: &str) {
+        let client = reqwest::Client::new();
+        let url = format!(
+            "https://claude.ai/api/organizations/{}/projects/{}/docs/{}",
+            self.organization_id, self.project_id, uuid
+        );
+
+        let _ = client.delete(&url).headers(self.headers.clone()).send().await;
+        println!("Cleaned up test file with UUID: {}", uuid);
     }
 
     async fn upload_file(
@@ -172,8 +295,27 @@ impl FileProcessor {
                     Ok(None)
                 }
             },
+            403 => {
+                let error_msg = "Access forbidden (403). Your session may have expired. Please update your curl command.".to_string();
+                let status = FileStatus {
+                    name: file_name,
+                    status: UploadStatus::Error(error_msg),
+                };
+                status_sender.send(status).unwrap_or_default();
+                Ok(None)
+            },
+            401 => {
+                let error_msg = "Unauthorized (401). Your authentication tokens are invalid. Please update your curl command.".to_string();
+                let status = FileStatus {
+                    name: file_name,
+                    status: UploadStatus::Error(error_msg),
+                };
+                status_sender.send(status).unwrap_or_default();
+                Ok(None)
+            },
             status_code => {
-                let error_msg = format!("Upload failed with status: {}", status_code);
+                let error_body = response.text().await.unwrap_or_default();
+                let error_msg = format!("Upload failed with status: {}. Response: {}", status_code, error_body);
                 let status = FileStatus {
                     name: file_name,
                     status: UploadStatus::Error(error_msg),

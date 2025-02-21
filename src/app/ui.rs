@@ -204,6 +204,51 @@ impl ClaudeUploader {
         });
     }
 
+    fn show_auth_help_dialog(&self, ui: &mut egui::Ui) {
+        ui.add_space(10.0);
+        
+        ui.group(|ui| {
+            ui.colored_label(
+                egui::Color32::from_rgb(220, 50, 50),
+                "⚠️ Authentication Error (403 Forbidden)",
+            );
+            
+            ui.add_space(5.0);
+            
+            ui.label("Claude.ai's authentication has changed or your session has expired.");
+            ui.label("Here's how to fix it:");
+            
+            ui.add_space(5.0);
+            
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 0.0;
+                ui.label("1. Open Claude.ai in your browser (");
+                if ui
+                    .add(egui::Label::new("https://claude.ai").sense(egui::Sense::click()))
+                    .clicked()
+                {
+                    let _ = open::that("https://claude.ai");
+                }
+                ui.label(")");
+            });
+            
+            ui.label("2. Open Developer Tools (F12 or right-click → Inspect)");
+            ui.label("3. Go to the Network tab");
+            ui.label("4. Upload any file manually in Claude.ai");
+            ui.label("5. Find the upload request (search for 'docs' in the filter)");
+            ui.label("6. Right-click the request and select 'Copy as cURL'");
+            ui.label("7. Paste the new curl command in the text box above");
+            
+            ui.add_space(5.0);
+            
+            ui.colored_label(
+                egui::Color32::from_rgb(100, 150, 255),
+                "Note: Claude.ai sessions expire regularly. You may need to repeat this process when that happens.",
+            );
+        });
+    }
+
+
     fn render_details(&mut self, ui: &mut egui::Ui) {
         if ui
             .button(if self.state.show_details {
@@ -304,6 +349,12 @@ impl ClaudeUploader {
             ui.vertical_centered(|ui| {
                 ui.colored_label(Color32::from_rgb(220, 50, 50), error);
             });
+        }
+
+        if let Some(error) = &self.state.error_message {
+            if error.contains("403") || error.contains("401") || error.contains("Authentication failed") {
+                self.show_auth_help_dialog(ui);
+            }
         }
     }
 }
